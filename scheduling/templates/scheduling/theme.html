@@ -1,0 +1,70 @@
+{% extends "scheduling/base.html" %}
+{% block title %}Theme{% endblock %}
+{% block content %}
+<div class="bg-white rounded-xl shadow p-4">
+    <h1 class="text-xl font-semibold">Theme</h1>
+    <p class="text-sm text-gray-600 mt-1">UI + image export can use gradients. PDF uses solid colors only.</p>
+
+    <form method="post" class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+        {% csrf_token %}
+        <input type="hidden" name="save_theme" value="1">
+
+        <div class="rounded border p-3">
+            <div class="font-semibold text-sm">Header</div>
+            <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                    <label class="text-xs text-gray-600">Type</label>
+                    <select name="header_bg_type" class="w-full rounded border px-3 py-2">
+                        <option value="solid" {% if theme.header_bg_type == "solid" %}selected{% endif %}>Solid</option>
+                        <option value="gradient" {% if theme.header_bg_type == "gradient" %}selected{% endif %}>Gradient</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-600">Text color</label>
+                    <input name="header_text_color" value="{{ theme.header_text_color }}" class="w-full rounded border px-3 py-2">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-600">Color 1</label>
+                    <input name="header_bg_color1" value="{{ theme.header_bg_color1 }}" class="w-full rounded border px-3 py-2">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-600">Color 2</label>
+                    <input name="header_bg_color2" value="{{ theme.header_bg_color2 }}" class="w-full rounded border px-3 py-2">
+                </div>
+            </div>
+        </div>
+
+        <div class="rounded border p-3">
+            <div class="font-semibold text-sm">Table header</div>
+            <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                    <label class="text-xs text-gray-600">Background</label>
+                    <input name="table_header_bg" value="{{ theme.table_header_bg }}" class="w-full rounded border px-3 py-2">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-600">Text</label>
+                    <input name="table_header_text" value="{{ theme.table_header_text }}" class="w-full rounded border px-3 py-2">
+                </div>
+            </div>
+        </div>
+
+        <div class="rounded border p-3">
+            <div class="font-semibold text-sm">Weekend background</div>
+            <div class="mt-2">
+                <input name="weekend_bg" value="{{ theme.weekend_bg }}" class="w-full rounded border px-3 py-2">
+            </div>
+        </div>
+
+        <div class="rounded border p-3">
+            <div class="font-semibold text-sm">Blocked cells background (reddish)</div>
+            <div class="mt-2">
+                <input name="blocked_bg" value="{{ theme.blocked_bg }}" class="w-full rounded border px-3 py-2">
+            </div>
+        </div>
+
+        <div class="md:col-span-2 flex justify-end">
+            <button class="rounded bg-black text-white px-4 py-2">Save theme</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,40 @@
+{% extends "scheduling/base.html" %}
+{% block title %}Staff{% endblock %}
+{% block content %}
+<div class="bg-white rounded-xl shadow p-4">
+    <h1 class="text-xl font-semibold">Staff</h1>
+    <p class="text-sm text-gray-600 mt-1">Names are unique. Add once, schedule everywhere.</p>
+
+    <form method="post" class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+        {% csrf_token %}
+        <div class="sm:col-span-2">
+            <label class="text-sm text-gray-600">Name</label>
+            <input name="name" class="w-full rounded border px-3 py-2" placeholder="e.g. Moe">
+            {% if error %}
+                <div class="text-sm text-red-600 mt-1">{{ error }}</div>
+            {% endif %}
+        </div>
+
+        <button name="add_staff" value="1" class="rounded bg-black text-white px-4 py-2">
+            Add
+        </button>
+    </form>
+
+    <div class="mt-5">
+        <h2 class="font-semibold text-sm">All staff</h2>
+        <div class="mt-2 space-y-2">
+            {% for s in staff %}
+                <div class="flex items-center justify-between rounded border bg-gray-50 px-3 py-2">
+                    <div class="text-sm">{{ s.name }}</div>
+                    <form method="post" action="/schedule/staff/{{ s.id }}/delete/">
+                        {% csrf_token %}
+                        <button class="text-sm text-red-600 hover:underline">Delete</button>
+                    </form>
+                </div>
+            {% empty %}
+                <div class="text-sm text-gray-500">No staff yet.</div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

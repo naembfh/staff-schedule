@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <title>{% block title %}Staff Schedule{% endblock %}</title>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="max-w-7xl mx-auto p-3 sm:p-6">
+        <div class="flex items-center justify-between gap-3 mb-4">
+            <a href="/schedule/" class="text-lg font-semibold">Staff Schedule</a>
+            <div class="flex gap-2 flex-wrap">
+                <a href="/schedule/" class="rounded border bg-white px-3 py-2 text-sm">Weeks</a>
+                <a href="/schedule/staff/" class="rounded border bg-white px-3 py-2 text-sm">Staff</a>
+                <a href="/schedule/slots/" class="rounded border bg-white px-3 py-2 text-sm">Slots</a>
+                <a href="/schedule/theme/" class="rounded border bg-white px-3 py-2 text-sm">Theme</a>
+            </div>
+        </div>
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>
