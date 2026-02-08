@@ -11,6 +11,7 @@ ALLOWED_HOSTS = [
     ".up.railway.app",
     ".zrok.io",
     ".share.zrok.io",
+    ".onrender.com",
 ]
 
 CSRF_TRUSTED_ORIGINS = [
@@ -19,7 +20,9 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.up.railway.app",
     "https://*.zrok.io",
     "https://*.share.zrok.io",
+    "https://*.onrender.com",
 ]
+
 
 # ALLOWED_HOSTS = ["*"]
 # CSRF_TRUSTED_ORIGINS = ["*"]
