@@ -680,10 +680,10 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
 
 def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 600, style: int = 1) -> bytes:
     # allow higher output dpi, but keep safe cap
-    dpi = max(200, min(int(dpi or 600), 1200))
+    dpi = max(200, min(int(dpi or 600), 900))
 
     # supersample (render higher, then downscale) for sharper text
-    render_dpi = max(200, min(int(dpi * 2), 1200))
+    render_dpi = max(200, min(int(dpi * 2), 900))
 
     # 1) Always generate the PDF first (so PNG can be identical to PDF)
     pdf_bytes = build_pdf(schedule=schedule, slots=slots, staff_map=staff_map, theme=theme, style=style)
