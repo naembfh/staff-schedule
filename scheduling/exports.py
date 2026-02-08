@@ -679,31 +679,27 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
 
 
 def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 600, style: int = 1) -> bytes:
-    # allow higher output dpi, but keep safe cap
-    dpi = max(200, min(int(dpi or 600), 800))
-
-    # supersample (render higher, then downscale) for sharper text
-    render_dpi = max(200, min(int(dpi * 2), 800))
+    # target DPI (what you want to return)
+    dpi = max(200, min(int(dpi or 600), 900))
 
     # 1) Always generate the PDF first (so PNG can be identical to PDF)
     pdf_bytes = build_pdf(schedule=schedule, slots=slots, staff_map=staff_map, theme=theme, style=style)
 
     from io import BytesIO
+    import math
     import os
     import shutil
     import subprocess
     import tempfile
 
     def _tighten_png_height(png_bytes: bytes, *, pad_dpi: int) -> bytes:
-        # Crop ONLY vertical whitespace (top/bottom) based on non-white content,
-        # keep full width so it still looks like the PDF.
+        # Crop ONLY vertical whitespace (top/bottom) based on non-white content
         from PIL import Image, ImageChops
 
         img = Image.open(BytesIO(png_bytes)).convert("RGB")
         bg = Image.new("RGB", img.size, (255, 255, 255))
         diff = ImageChops.difference(img, bg).convert("L")
 
-        # Ignore near-white noise/AA
         mask = diff.point(lambda p: 255 if p > 10 else 0)
         bbox = mask.getbbox()
         if not bbox:
@@ -711,7 +707,6 @@ def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 6
 
         _, top, _, bottom = bbox
 
-        # Keep a little breathing room like PDF margins (scaled by dpi)
         scale = pad_dpi / 150.0
         pad = int(max(8, 16 * scale))
 
@@ -746,9 +741,72 @@ def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 6
         img.save(out, format="PNG", dpi=(dst_dpi, dst_dpi), optimize=True)
         return out.getvalue()
 
-    # --- A) Ghostscript (recommended): identical full-page rasterization ---
+    # ---- Safe render cap (NO ENV needed) ----
+    # Free tier safe defaults (prevents 502/OOM). Tune here only.
+    max_pixels = 26000000        # safer than 32M on free tier
+    supersample = 1.25           # 1.0–1.5
+    if supersample < 1.0:
+        supersample = 1.0
+    if supersample > 1.5:
+        supersample = 1.5
+
+    def _cap_render_dpi(*, w_pt: float, h_pt: float, render_dpi: int) -> int:
+        zoom = render_dpi / 72.0
+        px_w = int(w_pt * zoom)
+        px_h = int(h_pt * zoom)
+        pixels = int(px_w) * int(px_h)
+
+        if pixels <= max_pixels:
+            return render_dpi
+
+        max_zoom = math.sqrt(max_pixels / float(max(w_pt * h_pt, 1.0)))
+        capped = int(max(200, min(render_dpi, int(max_zoom * 72.0))))
+        return capped
+
+    # Mild supersample for sharper text
+    render_dpi = int(min(1200, max(200, int(dpi * supersample))))
+
+    last_error = None
+
+    # --- A) PyMuPDF (fitz): best for Railway/Render ---
+    try:
+        import fitz  # type: ignore
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        try:
+            page = doc.load_page(0)
+
+            w_pt = float(page.rect.width)
+            h_pt = float(page.rect.height)
+
+            render_dpi2 = _cap_render_dpi(w_pt=w_pt, h_pt=h_pt, render_dpi=render_dpi)
+
+            zoom = render_dpi2 / 72.0
+            mat = fitz.Matrix(zoom, zoom)
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+
+            png = _tighten_png_height(pix.tobytes("png"), pad_dpi=render_dpi2)
+
+            if render_dpi2 != dpi:
+                png = _downsample_png(png, src_dpi=render_dpi2, dst_dpi=dpi)
+
+            return png
+        finally:
+            try:
+                doc.close()
+            except Exception:
+                pass
+    except Exception as e:
+        last_error = e
+
+    # --- B) Ghostscript (if available) ---
     gs = shutil.which("gs")
     if gs:
+        # A4 landscape is 842 x 595 points
+        w_pt = 842.0
+        h_pt = 595.0
+        render_dpi2 = _cap_render_dpi(w_pt=w_pt, h_pt=h_pt, render_dpi=render_dpi)
+
         pdf_path = None
         out_tpl = None
         try:
@@ -765,7 +823,7 @@ def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 6
                 "-dBATCH",
                 "-dNOPAUSE",
                 "-sDEVICE=png16m",
-                f"-r{render_dpi}",
+                f"-r{render_dpi2}",
                 "-dTextAlphaBits=4",
                 "-dGraphicsAlphaBits=4",
                 "-dFirstPage=1",
@@ -775,16 +833,14 @@ def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 6
             ]
             subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-            # Ghostscript writes page 1 as ..._001.png
             page1 = out_tpl.replace("%03d", "001")
             with open(page1, "rb") as imgf:
-                png = _tighten_png_height(imgf.read(), pad_dpi=render_dpi)
-                if render_dpi != dpi:
-                    png = _downsample_png(png, src_dpi=render_dpi, dst_dpi=dpi)
+                png = _tighten_png_height(imgf.read(), pad_dpi=render_dpi2)
+                if render_dpi2 != dpi:
+                    png = _downsample_png(png, src_dpi=render_dpi2, dst_dpi=dpi)
                 return png
-        except Exception:
-            # fall through to other methods
-            pass
+        except Exception as e:
+            last_error = e
         finally:
             try:
                 if pdf_path and os.path.exists(pdf_path):
@@ -799,54 +855,38 @@ def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 6
             except Exception:
                 pass
 
-    # --- B) PyMuPDF (fitz) ---
-    try:
-        import fitz  # type: ignore
-
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        try:
-            page = doc.load_page(0)
-            # scale so DPI matches (PDF points are 72 dpi)
-            zoom = render_dpi / 72.0
-            mat = fitz.Matrix(zoom, zoom)
-            pix = page.get_pixmap(matrix=mat, alpha=False)
-            png = _tighten_png_height(pix.tobytes("png"), pad_dpi=render_dpi)
-            if render_dpi != dpi:
-                png = _downsample_png(png, src_dpi=render_dpi, dst_dpi=dpi)
-            return png
-        finally:
-            try:
-                doc.close()
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    # --- C) pdf2image + poppler ---
+    # --- C) pdf2image + poppler (if available) ---
     try:
         from pdf2image import convert_from_bytes  # type: ignore
 
+        # A4 landscape is 842 x 595 points
+        render_dpi2 = _cap_render_dpi(w_pt=842.0, h_pt=595.0, render_dpi=render_dpi)
+
         images = convert_from_bytes(
             pdf_bytes,
-            dpi=render_dpi,
+            dpi=render_dpi2,
             fmt="png",
             first_page=1,
             last_page=1,
             single_file=True,
         )
         out = BytesIO()
-        images[0].save(out, format="PNG", dpi=(render_dpi, render_dpi), optimize=True)
-        png = _tighten_png_height(out.getvalue(), pad_dpi=render_dpi)
-        if render_dpi != dpi:
-            png = _downsample_png(png, src_dpi=render_dpi, dst_dpi=dpi)
+        images[0].save(out, format="PNG", dpi=(render_dpi2, render_dpi2), optimize=True)
+        png = _tighten_png_height(out.getvalue(), pad_dpi=render_dpi2)
+        if render_dpi2 != dpi:
+            png = _downsample_png(png, src_dpi=render_dpi2, dst_dpi=dpi)
         return png
-    except Exception:
-        pass
+    except Exception as e:
+        last_error = e
 
     raise RuntimeError(
-        "PNG rendering requires Ghostscript (recommended), PyMuPDF (fitz), or pdf2image+poppler.\n"
-        "Install ONE:\n"
-        "  1) sudo apt-get update && sudo apt-get install -y ghostscript\n"
-        "  2) pip install pymupdf\n"
-        "  3) sudo apt-get update && sudo apt-get install -y poppler-utils && pip install pdf2image\n"
+        "PNG rendering failed.\n"
+        "Fix options:\n"
+        "  1) Recommended (works on Railway/Render): pip install PyMuPDF  (module name: fitz)\n"
+        "  2) Or install Ghostscript (gs) on the server\n"
+        "  3) Or install poppler-utils + pdf2image\n"
+        "Tip: free tier usually works best with ?dpi=350–450. 600/800 may be auto-capped for safety.\n"
+        f"Original error: {type(last_error).__name__}: {last_error}"
+        if last_error
+        else ""
     )
