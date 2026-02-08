@@ -204,14 +204,14 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     bold_font = (getattr(theme, "pdf_font_bold", "") or "").strip() or "Helvetica-Bold"
 
     # ===== Font sizes (balanced) =====
-    header_font_size = _clamp(getattr(theme, "pdf_header_font_size", 15.0) or 15.0, 13.5, 17.0)
-    week_font_size = _clamp(getattr(theme, "pdf_week_font_size", 10.5) or 10.5, 9.5, 12.0)
-    th_font_size = _clamp(getattr(theme, "pdf_table_header_font_size", 10.3) or 10.3, 9.5, 12.0)
-    td_font_size = _clamp(getattr(theme, "pdf_table_font_size", 10.0) or 10.0, 9.0, 11.5)
+    header_font_size = _clamp(getattr(theme, "pdf_header_font_size", 16.0) or 16.0, 14.0, 18.0)
+    week_font_size = _clamp(getattr(theme, "pdf_week_font_size", 11.2) or 11.2, 10.0, 13.0)
+    th_font_size = _clamp(getattr(theme, "pdf_table_header_font_size", 11.0) or 11.0, 10.0, 13.0)
+    td_font_size = _clamp(getattr(theme, "pdf_table_font_size", 10.7) or 10.7, 9.8, 12.8)
 
     # IMPORTANT: keep same size feel as week range and PT time
-    subtext_size = _clamp(getattr(theme, "pdf_subtext_size", week_font_size) or week_font_size, 9.5, 12.0)
-    td_pt_font_size = _clamp(getattr(theme, "pdf_table_pt_font_size", week_font_size) or week_font_size, 9.5, 12.0)
+    subtext_size = _clamp(getattr(theme, "pdf_subtext_size", week_font_size) or week_font_size, 10.0, 13.0)
+    td_pt_font_size = _clamp(getattr(theme, "pdf_table_pt_font_size", week_font_size) or week_font_size, 10.0, 13.0)
 
     # ===== Page size + margins (centered layout) =====
     page_w, page_h = landscape(A4)
@@ -312,13 +312,7 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     def _format_names(names: list[str]) -> str:
         if not names:
             return ""
-        if len(names) == 1:
-            return names[0]
-        if len(names) == 2:
-            return f"{names[0]} / {names[1]}"
-        first_line = f"{names[0]} / {names[1]}"
-        rest = "<br/>".join(names[2:])
-        return first_line + "<br/>" + rest
+        return "<br/>".join([n for n in names if (n or "").strip()])
 
     def _format_pt_names(names: list[str], pt_time: str) -> str:
         if not names:
@@ -326,17 +320,11 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
         if not pt_time:
             return _format_names(names)
 
-        tagged = [f"{n} ({pt_time})" for n in names]
-        if len(tagged) == 1:
-            return tagged[0]
-        if len(tagged) == 2:
-            return f"{tagged[0]} / {tagged[1]}"
-        first_line = f"{tagged[0]} / {tagged[1]}"
-        rest = "<br/>".join(tagged[2:])
-        return first_line + "<br/>" + rest
+        tagged = [f"{n} ({pt_time})" for n in names if (n or "").strip()]
+        return "<br/>".join(tagged)
 
     # ===== Dynamic column widths (snug but stable) =====
-    cell_pad_x = 8
+    cell_pad_x = 6
     min_day_w = 90
     max_day_w = 150
     min_shift_w = 100
@@ -387,13 +375,13 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
                 preview = _format_names([str(n) for n in names]) if names else ""
 
             if preview:
-                first_line = preview.split("<br/>")[0]
-                try:
-                    w = pdfmetrics.stringWidth(first_line, body_font, td_font_size)
-                    if w > day_max:
-                        day_max = w
-                except Exception:
-                    pass
+                for line in [x for x in preview.split("<br/>") if x.strip()]:
+                    try:
+                        w = pdfmetrics.stringWidth(line, body_font, td_font_size)
+                        if w > day_max:
+                            day_max = w
+                    except Exception:
+                        pass
 
     day_w = _clamp(day_max + (cell_pad_x * 2) + 12, min_day_w, max_day_w)
     table_width = shift_w + (day_w * 7.0)
@@ -450,14 +438,14 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     th_day_style = styles["Normal"].clone("pdf_th_day")
     th_day_style.fontName = bold_font
     th_day_style.fontSize = th_font_size
-    th_day_style.leading = th_font_size + 1.8
+    th_day_style.leading = th_font_size + 1.2
     th_day_style.textColor = header_row_text
     th_day_style.alignment = 0
 
     th_date_style = styles["Normal"].clone("pdf_th_date")
     th_date_style.fontName = body_font
     th_date_style.fontSize = subtext_size
-    th_date_style.leading = subtext_size + 1.6
+    th_date_style.leading = subtext_size + 1.2
     th_date_style.textColor = colors.HexColor(table_subtext_hex)
     th_date_style.alignment = 2
 
@@ -465,20 +453,20 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     shift_style = styles["Normal"].clone("pdf_shift")
     shift_style.fontName = bold_font
     shift_style.fontSize = th_font_size
-    shift_style.leading = th_font_size + 2.0
+    shift_style.leading = th_font_size + 1.6
     shift_style.textColor = header_row_text
     shift_style.alignment = 0
 
     td_style = styles["Normal"].clone("pdf_td")
     td_style.fontName = body_font
     td_style.fontSize = td_font_size
-    td_style.leading = td_font_size + 2.4
+    td_style.leading = td_font_size + 1.4
     td_style.textColor = table_text
 
     td_pt_style = styles["Normal"].clone("pdf_td_pt")
     td_pt_style.fontName = body_font
     td_pt_style.fontSize = td_pt_font_size
-    td_pt_style.leading = td_pt_font_size + 2.2
+    td_pt_style.leading = td_pt_font_size + 1.2
     td_pt_style.textColor = table_text
 
     header = [Paragraph("Shift", shift_style)]
@@ -569,8 +557,8 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
 
         ("LEFTPADDING", (0, 0), (-1, -1), cell_pad_x),
         ("RIGHTPADDING", (0, 0), (-1, -1), cell_pad_x),
-        ("TOPPADDING", (0, 0), (-1, -1), 10),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
 
         ("INNERGRID", (0, 0), (-1, -1), 0.45, border_soft),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [stripe_a, stripe_b]),
