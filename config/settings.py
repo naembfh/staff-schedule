@@ -5,8 +5,24 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = "dev-secret-key-change-me"
 DEBUG = True
 
-ALLOWED_HOSTS = ["*"]
-CSRF_TRUSTED_ORIGINS = ["*"]
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    ".up.railway.app",
+    ".zrok.io",
+    ".share.zrok.io",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost",
+    "http://127.0.0.1",
+    "https://*.up.railway.app",
+    "https://*.zrok.io",
+    "https://*.share.zrok.io",
+]
+
+# ALLOWED_HOSTS = ["*"]
+# CSRF_TRUSTED_ORIGINS = ["*"]
 
 # CSRF_TRUSTED_ORIGINS = [
 #     "http://localhost",
