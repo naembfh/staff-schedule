@@ -114,6 +114,11 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
             stroke_color=None,
             stroke_width: float = 0.9,
             inset: float = 0.0,
+            shadow: bool = False,
+            shadow_dx: float = 2.2,
+            shadow_dy: float = -2.2,
+            shadow_color=None,
+            shadow_alpha: float = 0.10,
         ):
             super().__init__()
             self.flowable = flowable
@@ -122,6 +127,11 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
             self.stroke_color = stroke_color
             self.stroke_width = stroke_width
             self.inset = inset
+            self.shadow = shadow
+            self.shadow_dx = shadow_dx
+            self.shadow_dy = shadow_dy
+            self.shadow_color = shadow_color
+            self.shadow_alpha = shadow_alpha
             self._w = 0
             self._h = 0
 
@@ -134,6 +144,28 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
         def draw(self):
             c = self.canv
             c.saveState()
+
+            # Soft shadow behind the table card
+            if self.shadow:
+                try:
+                    c.saveState()
+                    if self.shadow_color is not None:
+                        c.setFillColor(self.shadow_color)
+                    else:
+                        c.setFillColor(colors.black)
+                    try:
+                        c.setFillAlpha(float(self.shadow_alpha or 0.0))
+                    except Exception:
+                        pass
+                    c.roundRect(self.shadow_dx, self.shadow_dy, self._w, self._h, self.radius, stroke=0, fill=1)
+                    try:
+                        c.setFillAlpha(1)
+                    except Exception:
+                        pass
+                    c.restoreState()
+                except Exception:
+                    pass
+
             if self.fill_color is not None:
                 c.setFillColor(self.fill_color)
             if self.stroke_color is not None and self.stroke_width and self.stroke_width > 0:
@@ -204,20 +236,29 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     bold_font = (getattr(theme, "pdf_font_bold", "") or "").strip() or "Helvetica-Bold"
 
     # ===== Font sizes (balanced) =====
-    header_font_size = _clamp(getattr(theme, "pdf_header_font_size", 16.0) or 16.0, 14.0, 18.0)
-    week_font_size = _clamp(getattr(theme, "pdf_week_font_size", 11.2) or 11.2, 10.0, 13.0)
-    th_font_size = _clamp(getattr(theme, "pdf_table_header_font_size", 11.0) or 11.0, 10.0, 13.0)
-    td_font_size = _clamp(getattr(theme, "pdf_table_font_size", 10.7) or 10.7, 9.8, 12.8)
+    header_font_size = _clamp(getattr(theme, "pdf_header_font_size", 18.0) or 18.0, 15.5, 20.0)
+    week_font_size = _clamp(getattr(theme, "pdf_week_font_size", 12.8) or 12.8, 11.2, 14.5)
+    th_font_size = _clamp(getattr(theme, "pdf_table_header_font_size", 12.3) or 12.3, 11.2, 14.5)
+    td_font_size = _clamp(getattr(theme, "pdf_table_font_size", 12.1) or 12.1, 10.8, 14.6)
 
     # IMPORTANT: keep same size feel as week range and PT time
-    subtext_size = _clamp(getattr(theme, "pdf_subtext_size", week_font_size) or week_font_size, 10.0, 13.0)
-    td_pt_font_size = _clamp(getattr(theme, "pdf_table_pt_font_size", week_font_size) or week_font_size, 10.0, 13.0)
+    subtext_size = _clamp(getattr(theme, "pdf_subtext_size", week_font_size) or week_font_size, 11.2, 14.5)
+    td_pt_font_size = _clamp(getattr(theme, "pdf_table_pt_font_size", week_font_size) or week_font_size, 11.2, 14.5)
+
+    # Header row: slightly smaller so day/date never wrap (one-line guarantee)
+    header_th_size = _clamp(th_font_size - 0.8, 10.6, th_font_size)
+    header_sub_size = _clamp(subtext_size - 0.8, 10.4, subtext_size)
+
+    # PT row: make text a little smaller (including "PT" label + names + time)
+    pt_row_delta = 1.0
+    td_pt_font_size_sm = _clamp(td_pt_font_size - pt_row_delta, 10.2, td_pt_font_size)
+    pt_shift_font_size_sm = _clamp(header_th_size - pt_row_delta, 10.2, header_th_size)
 
     # ===== Page size + margins (centered layout) =====
     page_w, page_h = landscape(A4)
 
-    # wider + equal margins (gives same empty space around)
-    margin = 12 * mm
+    # less wide overall: increase margins a bit
+    margin = 16 * mm
     left_margin = margin
     right_margin = margin
     top_margin = margin
@@ -233,7 +274,8 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     header_bg_hex = header_bottom_hex
     header_text_hex = "#F8FAFC"
 
-    header_row_bg_hex = "#EEF2F7"
+    # New soft header row bg (different from other rows)
+    header_row_bg_hex = "#FFF3E8"
     header_row_text_hex = "#0F172A"
     table_text_hex = "#0F172A"
     table_subtext_hex = "#64748B"
@@ -253,7 +295,7 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
 
     pt_empty_bg_hex = _blend_hex("#D14B57", "#FFFFFF", 0.72)
 
-    header_row_bg_hex = _blend_hex(header_row_bg_hex, "#FFFFFF", 0.06)
+    header_row_bg_hex = _blend_hex(header_row_bg_hex, "#FFFFFF", 0.10)
     weekend_bg_hex = _blend_hex(weekend_bg_hex, "#FFFFFF", 0.08)
     stripe_b_hex = _blend_hex(stripe_b_hex, "#FFFFFF", 0.06)
 
@@ -324,11 +366,12 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
         return "<br/>".join(tagged)
 
     # ===== Dynamic column widths (snug but stable) =====
-    cell_pad_x = 6
-    min_day_w = 90
-    max_day_w = 150
-    min_shift_w = 100
-    max_shift_w = 180
+    # less wide: very small horizontal padding + slightly narrower clamps
+    cell_pad_x = 2
+    min_day_w = 82
+    max_day_w = 135
+    min_shift_w = 92
+    max_shift_w = 160
 
     shift_max = pdfmetrics.stringWidth("Shift", bold_font, th_font_size)
     for slot in visible_slots:
@@ -338,7 +381,7 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
                 shift_max = w
         except Exception:
             pass
-    shift_w = _clamp(shift_max + (cell_pad_x * 2) + 8, min_shift_w, max_shift_w)
+    shift_w = _clamp(shift_max + (cell_pad_x * 2) + 6, min_shift_w, max_shift_w)
 
     day_max = 0.0
     for h in header_cells:
@@ -353,7 +396,7 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
             wdt = pdfmetrics.stringWidth(date_txt, body_font, subtext_size)
         except Exception:
             wdt = 0.0
-        need = wd + wdt + 14
+        need = wd + wdt + 12
         if need > day_max:
             day_max = need
 
@@ -383,22 +426,22 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
                     except Exception:
                         pass
 
-    day_w = _clamp(day_max + (cell_pad_x * 2) + 12, min_day_w, max_day_w)
+    day_w = _clamp(day_max + (cell_pad_x * 2) + 8, min_day_w, max_day_w)
     table_width = shift_w + (day_w * 7.0)
 
     # ===== Fit to page width (fix cutdown) =====
     if table_width > avail_w:
         day_w_fit = (avail_w - shift_w) / 7.0
         if day_w_fit < min_day_w:
-            day_w = max(72.0, day_w_fit)
+            day_w = max(70.0, day_w_fit)
         else:
             day_w = min(day_w, day_w_fit)
 
         table_width = shift_w + (day_w * 7.0)
         if table_width > avail_w:
             scale = avail_w / float(max(table_width, 1.0))
-            shift_w = max(80.0, shift_w * scale)
-            day_w = max(72.0, day_w * scale)
+            shift_w = max(78.0, shift_w * scale)
+            day_w = max(70.0, day_w * scale)
             table_width = shift_w + (day_w * 7.0)
 
     # ===== Header band =====
@@ -407,14 +450,14 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     center_style = styles["Normal"].clone("pdf_header_center")
     center_style.fontName = bold_font
     center_style.fontSize = week_font_size
-    center_style.leading = week_font_size + 1.8
+    center_style.leading = week_font_size + 2.2
     center_style.textColor = header_text
     center_style.alignment = 1
 
     right_style = styles["Normal"].clone("pdf_header_right")
     right_style.fontName = body_font
     right_style.fontSize = week_font_size
-    right_style.leading = week_font_size + 1.8
+    right_style.leading = week_font_size + 2.2
     right_style.textColor = header_text
     right_style.alignment = 2
 
@@ -430,44 +473,83 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (-1, -1), 10),
         ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-        ("TOPPADDING", (0, 0), (-1, -1), 7),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
     ]))
 
     # ===== Table styles =====
     th_day_style = styles["Normal"].clone("pdf_th_day")
     th_day_style.fontName = bold_font
-    th_day_style.fontSize = th_font_size
-    th_day_style.leading = th_font_size + 1.2
+    th_day_style.fontSize = header_th_size
+    th_day_style.leading = header_th_size + 0.1
     th_day_style.textColor = header_row_text
     th_day_style.alignment = 0
+    th_day_style.spaceBefore = 0
+    th_day_style.spaceAfter = 0
+    th_day_style.splitLongWords = 0
 
     th_date_style = styles["Normal"].clone("pdf_th_date")
-    th_date_style.fontName = body_font
-    th_date_style.fontSize = subtext_size
-    th_date_style.leading = subtext_size + 1.2
+    th_date_style.fontName = bold_font
+    th_date_style.fontSize = header_sub_size
+    th_date_style.leading = header_sub_size + 0.1
     th_date_style.textColor = colors.HexColor(table_subtext_hex)
     th_date_style.alignment = 2
+    th_date_style.spaceBefore = 0
+    th_date_style.spaceAfter = 0
+    th_date_style.splitLongWords = 0
 
     # Shift column should be bold like day
     shift_style = styles["Normal"].clone("pdf_shift")
     shift_style.fontName = bold_font
-    shift_style.fontSize = th_font_size
-    shift_style.leading = th_font_size + 1.6
+    shift_style.fontSize = header_th_size
+    shift_style.leading = header_th_size + 0.1
     shift_style.textColor = header_row_text
     shift_style.alignment = 0
+    shift_style.spaceBefore = 0
+    shift_style.spaceAfter = 0
+    shift_style.splitLongWords = 0
 
+    # PT shift label: slightly smaller
+    pt_shift_style = styles["Normal"].clone("pdf_shift_pt")
+    pt_shift_style.fontName = bold_font
+    pt_shift_style.fontSize = pt_shift_font_size_sm
+    pt_shift_style.leading = pt_shift_font_size_sm + 0.1
+    pt_shift_style.textColor = header_row_text
+    pt_shift_style.alignment = 0
+    pt_shift_style.spaceBefore = 0
+    pt_shift_style.spaceAfter = 0
+    pt_shift_style.splitLongWords = 0
+
+    # Tight line spacing in cells (padding controls height)
     td_style = styles["Normal"].clone("pdf_td")
-    td_style.fontName = body_font
+    td_style.fontName = bold_font
     td_style.fontSize = td_font_size
-    td_style.leading = td_font_size + 1.4
+    td_style.leading = td_font_size + 0.6
     td_style.textColor = table_text
+    td_style.spaceBefore = 0
+    td_style.spaceAfter = 0
 
     td_pt_style = styles["Normal"].clone("pdf_td_pt")
-    td_pt_style.fontName = body_font
-    td_pt_style.fontSize = td_pt_font_size
-    td_pt_style.leading = td_pt_font_size + 1.2
+    td_pt_style.fontName = bold_font
+    td_pt_style.fontSize = td_pt_font_size_sm
+    td_pt_style.leading = td_pt_font_size_sm + 0.6
     td_pt_style.textColor = table_text
+    td_pt_style.spaceBefore = 0
+    td_pt_style.spaceAfter = 0
+
+    # ---- Small, equal “breathing space” rules ----
+    shift_left_pad = 5       # only left padding for Shift column
+    header_lr_pad = 3        # small left+right padding for day/date header cells
+    body_left_inset = 2      # tiny left inset for all body cell content (as space)
+
+    body_inset = "&nbsp;" * max(1, int(body_left_inset))
+
+    def _indent_each_line(html: str) -> str:
+        html = (html or "")
+        if not html.strip():
+            return ""
+        lines = html.split("<br/>")
+        return "<br/>".join([f"{body_inset}{ln}" for ln in lines])
 
     header = [Paragraph("Shift", shift_style)]
     inner_day_w = max(10.0, day_w - (cell_pad_x * 2))
@@ -475,20 +557,21 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
         parts = [p.strip() for p in str(h).splitlines() if p.strip()]
         day = parts[0] if parts else ""
         date_txt = _short_date(parts[1]) if len(parts) >= 2 else ""
+        date_txt_nb = (date_txt or "").replace(" ", "&nbsp;")
 
         cell_tbl = Table(
             [[
                 Paragraph(day, th_day_style),
-                Paragraph(date_txt, th_date_style),
+                Paragraph(date_txt_nb, th_date_style),
             ]],
-            colWidths=[inner_day_w * 0.34, inner_day_w * 0.66],
+            colWidths=[inner_day_w * 0.48, inner_day_w * 0.52],
         )
         cell_tbl.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("ALIGN", (0, 0), (0, 0), "LEFT"),
             ("ALIGN", (1, 0), (1, 0), "RIGHT"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("LEFTPADDING", (0, 0), (-1, -1), header_lr_pad),
+            ("RIGHTPADDING", (0, 0), (-1, -1), header_lr_pad),
             ("TOPPADDING", (0, 0), (-1, -1), 0),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
         ]))
@@ -505,9 +588,15 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
 
     for slot in visible_slots:
         row_index = len(data)
-        row = [Paragraph(_label_clean(slot.label), shift_style)]
+
         kind = _slot_kind(slot)
         row_kind_by_row[row_index] = kind
+
+        # Shift labels: left breathing space (same for PT/Rest/PH/AL/etc.)
+        if kind == "pt":
+            row = [Paragraph(_label_clean(slot.label), pt_shift_style)]
+        else:
+            row = [Paragraph(_label_clean(slot.label), shift_style)]
 
         for col_index, (day_key, _) in enumerate(DAYS, start=1):
             cell = (schedule.cells.get(slot.key, {}) or {}).get(day_key, {}) or {}
@@ -531,7 +620,7 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
                     row.append("")
                     continue
 
-                row.append(Paragraph(_format_pt_names(names_list, pt_time), td_pt_style))
+                row.append(Paragraph(_indent_each_line(_format_pt_names(names_list, pt_time)), td_pt_style))
                 continue
 
             if not names_list:
@@ -539,7 +628,7 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
                 row.append("")
                 continue
 
-            row.append(Paragraph(_format_names(names_list), td_style))
+            row.append(Paragraph(_indent_each_line(_format_names(names_list)), td_style))
 
         data.append(row)
 
@@ -555,10 +644,21 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
         ("BACKGROUND", (0, 0), (-1, 0), header_row_bg),
         ("TEXTCOLOR", (0, 0), (-1, 0), header_row_text),
 
+        # default: very tight table (less wide)
         ("LEFTPADDING", (0, 0), (-1, -1), cell_pad_x),
         ("RIGHTPADDING", (0, 0), (-1, -1), cell_pad_x),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+
+        # Shift column: small LEFT padding only (right stays tight)
+        ("LEFTPADDING", (0, 0), (0, -1), shift_left_pad),
+        ("RIGHTPADDING", (0, 0), (0, -1), cell_pad_x),
+
+        # Header row same height as body rows
+        ("TOPPADDING", (0, 0), (-1, 0), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 10),
+
+        # Body rows
+        ("TOPPADDING", (0, 1), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 10),
 
         ("INNERGRID", (0, 0), (-1, -1), 0.45, border_soft),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [stripe_a, stripe_b]),
@@ -613,13 +713,25 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
         bottomMargin=bottom_margin,
     )
 
-    header_to_table_gap = 10
-    gap = 4
+    header_to_table_gap = 16
+    gap = 6
 
     header_card = _GradientRoundedCard(header_table, radius=5, top_hex=header_top_hex, bottom_hex=header_bottom_hex, stroke_color=None, stroke_width=0.0, inset=0.0, steps=90)
     header_card.hAlign = "CENTER"
 
-    table_card = _RoundedCard(table, radius=5, fill_color=colors.white, stroke_color=border_soft, stroke_width=0.9, inset=0.0)
+    table_card = _RoundedCard(
+        table,
+        radius=5,
+        fill_color=colors.white,
+        stroke_color=border_soft,
+        stroke_width=0.9,
+        inset=0.0,
+        shadow=True,
+        shadow_dx=2.2,
+        shadow_dy=-2.2,
+        shadow_color=colors.black,
+        shadow_alpha=0.10,
+    )
     table_card.hAlign = "CENTER"
 
     story = [
@@ -664,7 +776,6 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
 
     doc.build(story)
     return buf.getvalue()
-
 
 def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 600, style: int = 1) -> bytes:
     # target DPI (what you want to return)
