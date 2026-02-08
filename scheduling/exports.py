@@ -49,6 +49,7 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     from reportlab.platypus import Flowable
     from reportlab.pdfbase import pdfmetrics
     from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
 
     def _clamp(v: float, lo: float, hi: float) -> float:
         try:
@@ -87,6 +88,21 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
         if len(parts) >= 2:
             return f"{parts[0]} {parts[1]}"
         return s
+
+    def _draw_vertical_gradient(c, x: float, y: float, w: float, h: float, *, top_hex: str, bottom_hex: str, steps: int = 80):
+        br, bg, bb = _hex_to_rgb01(bottom_hex)
+        tr, tg, tb = _hex_to_rgb01(top_hex)
+
+        step_h = h / float(max(steps, 1))
+        for i in range(max(steps, 1)):
+            t = i / float(max(steps - 1, 1))
+            r = br + (tr - br) * t
+            g = bg + (tg - bg) * t
+            b = bb + (tb - bb) * t
+
+            yy = y + (i * step_h)
+            c.setFillColorRGB(r, g, b)
+            c.rect(x, yy, w, step_h + 0.8, stroke=0, fill=1)
 
     class _RoundedCard(Flowable):
         def __init__(
@@ -132,6 +148,55 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
             self.flowable.drawOn(c, self.inset, self.inset)
             c.restoreState()
 
+    class _GradientRoundedCard(Flowable):
+        def __init__(
+            self,
+            flowable,
+            *,
+            radius: float = 5,
+            top_hex: str = "#FFFFFF",
+            bottom_hex: str = "#000000",
+            stroke_color=None,
+            stroke_width: float = 0.0,
+            inset: float = 0.0,
+            steps: int = 80,
+        ):
+            super().__init__()
+            self.flowable = flowable
+            self.radius = radius
+            self.top_hex = top_hex
+            self.bottom_hex = bottom_hex
+            self.stroke_color = stroke_color
+            self.stroke_width = stroke_width
+            self.inset = inset
+            self.steps = steps
+            self._w = 0
+            self._h = 0
+
+        def wrap(self, availWidth, availHeight):
+            w, h = self.flowable.wrap(availWidth - (self.inset * 2), availHeight)
+            self._w = w + (self.inset * 2)
+            self._h = h + (self.inset * 2)
+            return self._w, self._h
+
+        def draw(self):
+            c = self.canv
+            c.saveState()
+
+            p = c.beginPath()
+            p.roundRect(0, 0, self._w, self._h, self.radius)
+            c.clipPath(p, stroke=0, fill=0)
+
+            _draw_vertical_gradient(c, 0, 0, self._w, self._h, top_hex=self.top_hex, bottom_hex=self.bottom_hex, steps=self.steps)
+
+            if self.stroke_color is not None and self.stroke_width and self.stroke_width > 0:
+                c.setStrokeColor(self.stroke_color)
+                c.setLineWidth(self.stroke_width)
+                c.roundRect(0, 0, self._w, self._h, self.radius, stroke=1, fill=0)
+
+            self.flowable.drawOn(c, self.inset, self.inset)
+            c.restoreState()
+
     styles = getSampleStyleSheet()
 
     # ===== Fonts (nice + consistent, minimal bold) =====
@@ -148,9 +213,24 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     subtext_size = _clamp(getattr(theme, "pdf_subtext_size", week_font_size) or week_font_size, 9.5, 12.0)
     td_pt_font_size = _clamp(getattr(theme, "pdf_table_pt_font_size", week_font_size) or week_font_size, 9.5, 12.0)
 
+    # ===== Page size + margins (centered layout) =====
+    page_w, page_h = landscape(A4)
+
+    # wider + equal margins (gives same empty space around)
+    margin = 12 * mm
+    left_margin = margin
+    right_margin = margin
+    top_margin = margin
+    bottom_margin = margin
+
+    avail_w = page_w - left_margin - right_margin
+
     # ===== Colors (soft, but not too soft) =====
-    header_bg_hex = "#611B29"
-    header_bg_hex = _blend_hex(header_bg_hex, "#000000", 0.10)
+    base_header_hex = "#611B29"
+    header_top_hex = _blend_hex(base_header_hex, "#FFFFFF", 0.20)
+    header_bottom_hex = _blend_hex(base_header_hex, "#000000", 0.20)
+
+    header_bg_hex = header_bottom_hex
     header_text_hex = "#F8FAFC"
 
     header_row_bg_hex = "#EEF2F7"
@@ -169,6 +249,7 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     leave_bg_hex  = "#EFCF86"
     pt_bg_hex     = "#CBE8D4"
 
+    empty_cell_bg_hex = _blend_hex(base_header_hex, "#FFFFFF", 0.92)
 
     pt_empty_bg_hex = _blend_hex("#D14B57", "#FFFFFF", 0.72)
 
@@ -197,6 +278,7 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     leave_row_bg = colors.HexColor(leave_bg_hex)
     pt_row_bg = colors.HexColor(pt_bg_hex)
 
+    empty_cell_bg = colors.HexColor(empty_cell_bg_hex)
     pt_empty_bg = colors.HexColor(pt_empty_bg_hex)
 
     # ===== Data helpers =====
@@ -316,6 +398,21 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     day_w = _clamp(day_max + (cell_pad_x * 2) + 12, min_day_w, max_day_w)
     table_width = shift_w + (day_w * 7.0)
 
+    # ===== Fit to page width (fix cutdown) =====
+    if table_width > avail_w:
+        day_w_fit = (avail_w - shift_w) / 7.0
+        if day_w_fit < min_day_w:
+            day_w = max(72.0, day_w_fit)
+        else:
+            day_w = min(day_w, day_w_fit)
+
+        table_width = shift_w + (day_w * 7.0)
+        if table_width > avail_w:
+            scale = avail_w / float(max(table_width, 1.0))
+            shift_w = max(80.0, shift_w * scale)
+            day_w = max(72.0, day_w * scale)
+            table_width = shift_w + (day_w * 7.0)
+
     # ===== Header band =====
     week_title = f"{schedule.week_start.strftime('%d %b %Y')} – {schedule.week_end().strftime('%d %b %Y')}"
 
@@ -336,13 +433,12 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     header_table = Table(
         [[
             Paragraph("", right_style),
-            Paragraph("Staff Schedule", center_style),
+            Paragraph("Sam's Weekly Staff Schedule", center_style),
             Paragraph(week_title, right_style),
         ]],
         colWidths=[table_width * 0.18, table_width * 0.54, table_width * 0.28],
     )
     header_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), header_bg),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (-1, -1), 10),
         ("RIGHTPADDING", (0, 0), (-1, -1), 10),
@@ -415,16 +511,22 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     # PT empty cells (no one assigned) -> reddish background
     pt_empty_cells: list[tuple[int, int]] = []
 
+    # Empty cells (all kinds) -> soft background
+    empty_cells: list[tuple[int, int]] = []
+    row_kind_by_row: dict[int, str] = {}
+
     for slot in visible_slots:
         row_index = len(data)
         row = [Paragraph(_label_clean(slot.label), shift_style)]
         kind = _slot_kind(slot)
+        row_kind_by_row[row_index] = kind
 
         for col_index, (day_key, _) in enumerate(DAYS, start=1):
             cell = (schedule.cells.get(slot.key, {}) or {}).get(day_key, {}) or {}
             blocked = bool(cell.get("blocked"))
 
             if slot.allow_block and blocked:
+                empty_cells.append((row_index, col_index))
                 row.append("")
                 continue
 
@@ -435,9 +537,9 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
             if kind == "pt":
                 pt_time = (cell.get("pt_time") or "").strip()
 
-                # Only RED when no one assigned
+                # Empty -> use same empty cell color
                 if not names_list:
-                    pt_empty_cells.append((row_index, col_index))
+                    empty_cells.append((row_index, col_index))
                     row.append("")
                     continue
 
@@ -445,6 +547,7 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
                 continue
 
             if not names_list:
+                empty_cells.append((row_index, col_index))
                 row.append("")
                 continue
 
@@ -507,23 +610,34 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     for (r, c) in pt_empty_cells:
         st.add("BACKGROUND", (c, r), (c, r), pt_empty_bg)
 
+    # Empty cells: soft background (also overrides weekend for empty sat/sun)
+    for (r, c) in empty_cells:
+        st.add("BACKGROUND", (c, r), (c, r), empty_cell_bg)
+
     table.setStyle(st)
 
     doc = SimpleDocTemplate(
         buf,
         pagesize=landscape(A4),
-        leftMargin=6 * mm,
-        rightMargin=6 * mm,
-        topMargin=6 * mm,
-        bottomMargin=6 * mm,
+        leftMargin=left_margin,
+        rightMargin=right_margin,
+        topMargin=top_margin,
+        bottomMargin=bottom_margin,
     )
 
     header_to_table_gap = 10
     gap = 4
+
+    header_card = _GradientRoundedCard(header_table, radius=5, top_hex=header_top_hex, bottom_hex=header_bottom_hex, stroke_color=None, stroke_width=0.0, inset=0.0, steps=90)
+    header_card.hAlign = "CENTER"
+
+    table_card = _RoundedCard(table, radius=5, fill_color=colors.white, stroke_color=border_soft, stroke_width=0.9, inset=0.0)
+    table_card.hAlign = "CENTER"
+
     story = [
-        _RoundedCard(header_table, radius=5, fill_color=header_bg, stroke_color=None, stroke_width=0.0, inset=0.0),
+        header_card,
         Spacer(1, header_to_table_gap),
-        _RoundedCard(table, radius=5, fill_color=colors.white, stroke_color=border_soft, stroke_width=0.9, inset=0.0),
+        table_card,
     ]
 
     if schedule.notes.strip():
@@ -543,12 +657,33 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
         story.append(Paragraph("Notes", notes_title))
         story.append(Paragraph(schedule.notes, notes_body))
 
+    # ===== Vertical centering (equal empty space top/bottom when possible) =====
+    avail_h = page_h - top_margin - bottom_margin
+    total_h = 0.0
+    for f in story:
+        try:
+            _, h = f.wrap(avail_w, avail_h)
+        except Exception:
+            try:
+                h = float(getattr(f, "height", 0) or 0)
+            except Exception:
+                h = 0.0
+        total_h += float(h or 0.0)
+
+    remaining = avail_h - total_h
+    if remaining > 2.0:
+        story.insert(0, Spacer(1, remaining / 2.0))
+
     doc.build(story)
     return buf.getvalue()
 
 
-def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 450, style: int = 1) -> bytes:
-    dpi = max(200, min(int(dpi or 450), 800))
+def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 600, style: int = 1) -> bytes:
+    # allow higher output dpi, but keep safe cap
+    dpi = max(200, min(int(dpi or 600), 1200))
+
+    # supersample (render higher, then downscale) for sharper text
+    render_dpi = max(200, min(int(dpi * 2), 1200))
 
     # 1) Always generate the PDF first (so PNG can be identical to PDF)
     pdf_bytes = build_pdf(schedule=schedule, slots=slots, staff_map=staff_map, theme=theme, style=style)
@@ -559,7 +694,7 @@ def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 4
     import subprocess
     import tempfile
 
-    def _tighten_png_height(png_bytes: bytes) -> bytes:
+    def _tighten_png_height(png_bytes: bytes, *, pad_dpi: int) -> bytes:
         # Crop ONLY vertical whitespace (top/bottom) based on non-white content,
         # keep full width so it still looks like the PDF.
         from PIL import Image, ImageChops
@@ -577,7 +712,7 @@ def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 4
         _, top, _, bottom = bbox
 
         # Keep a little breathing room like PDF margins (scaled by dpi)
-        scale = dpi / 150.0
+        scale = pad_dpi / 150.0
         pad = int(max(8, 16 * scale))
 
         top = max(0, top - pad)
@@ -586,7 +721,29 @@ def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 4
         img = img.crop((0, top, img.size[0], bottom))
 
         out = BytesIO()
-        img.save(out, format="PNG", dpi=(dpi, dpi))
+        img.save(out, format="PNG", dpi=(pad_dpi, pad_dpi), optimize=True)
+        return out.getvalue()
+
+    def _downsample_png(png_bytes: bytes, *, src_dpi: int, dst_dpi: int) -> bytes:
+        if src_dpi <= dst_dpi:
+            return png_bytes
+
+        from PIL import Image
+
+        img = Image.open(BytesIO(png_bytes)).convert("RGB")
+        scale = dst_dpi / float(src_dpi)
+        new_w = max(1, int(img.size[0] * scale))
+        new_h = max(1, int(img.size[1] * scale))
+
+        try:
+            resample = Image.Resampling.LANCZOS
+        except Exception:
+            resample = Image.LANCZOS
+
+        img = img.resize((new_w, new_h), resample=resample)
+
+        out = BytesIO()
+        img.save(out, format="PNG", dpi=(dst_dpi, dst_dpi), optimize=True)
         return out.getvalue()
 
     # --- A) Ghostscript (recommended): identical full-page rasterization ---
@@ -608,7 +765,7 @@ def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 4
                 "-dBATCH",
                 "-dNOPAUSE",
                 "-sDEVICE=png16m",
-                f"-r{dpi}",
+                f"-r{render_dpi}",
                 "-dTextAlphaBits=4",
                 "-dGraphicsAlphaBits=4",
                 "-dFirstPage=1",
@@ -621,7 +778,10 @@ def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 4
             # Ghostscript writes page 1 as ..._001.png
             page1 = out_tpl.replace("%03d", "001")
             with open(page1, "rb") as imgf:
-                return _tighten_png_height(imgf.read())
+                png = _tighten_png_height(imgf.read(), pad_dpi=render_dpi)
+                if render_dpi != dpi:
+                    png = _downsample_png(png, src_dpi=render_dpi, dst_dpi=dpi)
+                return png
         except Exception:
             # fall through to other methods
             pass
@@ -647,10 +807,13 @@ def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 4
         try:
             page = doc.load_page(0)
             # scale so DPI matches (PDF points are 72 dpi)
-            zoom = dpi / 72.0
+            zoom = render_dpi / 72.0
             mat = fitz.Matrix(zoom, zoom)
             pix = page.get_pixmap(matrix=mat, alpha=False)
-            return _tighten_png_height(pix.tobytes("png"))
+            png = _tighten_png_height(pix.tobytes("png"), pad_dpi=render_dpi)
+            if render_dpi != dpi:
+                png = _downsample_png(png, src_dpi=render_dpi, dst_dpi=dpi)
+            return png
         finally:
             try:
                 doc.close()
@@ -665,15 +828,18 @@ def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 4
 
         images = convert_from_bytes(
             pdf_bytes,
-            dpi=dpi,
+            dpi=render_dpi,
             fmt="png",
             first_page=1,
             last_page=1,
             single_file=True,
         )
         out = BytesIO()
-        images[0].save(out, format="PNG", dpi=(dpi, dpi))
-        return _tighten_png_height(out.getvalue())
+        images[0].save(out, format="PNG", dpi=(render_dpi, render_dpi), optimize=True)
+        png = _tighten_png_height(out.getvalue(), pad_dpi=render_dpi)
+        if render_dpi != dpi:
+            png = _downsample_png(png, src_dpi=render_dpi, dst_dpi=dpi)
+        return png
     except Exception:
         pass
 
