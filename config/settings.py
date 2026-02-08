@@ -6,13 +6,14 @@ SECRET_KEY = "dev-secret-key-change-me"
 DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
+CSRF_TRUSTED_ORIGINS = ["*"]
 
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost",
-    "http://127.0.0.1",
-    "https://*.share.zrok.io",
-    "https://*.zrok.io",
-]
+# CSRF_TRUSTED_ORIGINS = [
+#     "http://localhost",
+#     "http://127.0.0.1",
+#     "https://*.share.zrok.io",
+#     "https://*.zrok.io",
+# ]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
