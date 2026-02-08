@@ -466,8 +466,8 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
 
         ("LEFTPADDING", (0, 0), (-1, -1), cell_pad_x),
         ("RIGHTPADDING", (0, 0), (-1, -1), cell_pad_x),
-        ("TOPPADDING", (0, 0), (-1, -1), 7),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
 
         ("INNERGRID", (0, 0), (-1, -1), 0.45, border_soft),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [stripe_a, stripe_b]),
@@ -518,10 +518,11 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
         bottomMargin=6 * mm,
     )
 
+    header_to_table_gap = 10
     gap = 4
     story = [
         _RoundedCard(header_table, radius=5, fill_color=header_bg, stroke_color=None, stroke_width=0.0, inset=0.0),
-        Spacer(1, gap),
+        Spacer(1, header_to_table_gap),
         _RoundedCard(table, radius=5, fill_color=colors.white, stroke_color=border_soft, stroke_width=0.9, inset=0.0),
     ]
 
@@ -544,7 +545,6 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
 
     doc.build(story)
     return buf.getvalue()
-
 
 
 def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 450, style: int = 1) -> bytes:

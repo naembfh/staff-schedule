@@ -146,6 +146,8 @@
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     const staffNameMap = JSON.parse(document.getElementById('staffNameMapJson').textContent || "{}");
 
+    const DEBUG = (new URLSearchParams(location.search).get('debug') === '1') || (localStorage.getItem('sched_debug') === '1');
+
     function toast(msg) {
         const el = document.getElementById('toast');
         el.textContent = msg;
@@ -154,20 +156,182 @@
         window.__toastTimer = setTimeout(() => el.classList.add('hidden'), 1400);
     }
 
-    async function postJSON(url, payload) {
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrfToken,
-            },
-            body: JSON.stringify(payload),
+    function _eventTargetEl(t) {
+        if (!t) return null;
+        if (t.nodeType === 3) return t.parentElement; // Text node -> parent element (mobile Safari can do this)
+        return t;
+    }
+
+    function _closest(t, selector) {
+        const el = _eventTargetEl(t);
+        if (!el) return null;
+        if (typeof el.closest !== 'function') return null;
+        return el.closest(selector);
+    }
+
+    function _createMobileConsole() {
+        if (!DEBUG) return null;
+
+        const wrap = document.createElement('div');
+        wrap.style.position = 'fixed';
+        wrap.style.left = '0';
+        wrap.style.right = '0';
+        wrap.style.bottom = '0';
+        wrap.style.height = '40vh';
+        wrap.style.zIndex = '999999';
+        wrap.style.background = 'rgba(0,0,0,0.92)';
+        wrap.style.color = '#fff';
+        wrap.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+        wrap.style.fontSize = '12px';
+        wrap.style.display = 'none';
+
+        const bar = document.createElement('div');
+        bar.style.display = 'flex';
+        bar.style.alignItems = 'center';
+        bar.style.justifyContent = 'space-between';
+        bar.style.gap = '8px';
+        bar.style.padding = '8px 10px';
+        bar.style.borderBottom = '1px solid rgba(255,255,255,0.15)';
+
+        const title = document.createElement('div');
+        title.textContent = 'Mobile Console';
+        title.style.fontWeight = '700';
+
+        const btns = document.createElement('div');
+        btns.style.display = 'flex';
+        btns.style.gap = '8px';
+
+        const clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.textContent = 'Clear';
+        clearBtn.style.padding = '4px 8px';
+        clearBtn.style.border = '1px solid rgba(255,255,255,0.25)';
+        clearBtn.style.borderRadius = '8px';
+        clearBtn.style.background = 'transparent';
+        clearBtn.style.color = '#fff';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.textContent = 'Close';
+        closeBtn.style.padding = '4px 8px';
+        closeBtn.style.border = '1px solid rgba(255,255,255,0.25)';
+        closeBtn.style.borderRadius = '8px';
+        closeBtn.style.background = 'transparent';
+        closeBtn.style.color = '#fff';
+
+        btns.appendChild(clearBtn);
+        btns.appendChild(closeBtn);
+
+        bar.appendChild(title);
+        bar.appendChild(btns);
+
+        const body = document.createElement('div');
+        body.style.padding = '8px 10px';
+        body.style.overflow = 'auto';
+        body.style.height = 'calc(40vh - 44px)';
+        body.style.whiteSpace = 'pre-wrap';
+        body.style.wordBreak = 'break-word';
+
+        wrap.appendChild(bar);
+        wrap.appendChild(body);
+        document.body.appendChild(wrap);
+
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.textContent = '🐞';
+        toggle.title = 'Open mobile console';
+        toggle.style.position = 'fixed';
+        toggle.style.right = '14px';
+        toggle.style.bottom = '14px';
+        toggle.style.width = '44px';
+        toggle.style.height = '44px';
+        toggle.style.borderRadius = '999px';
+        toggle.style.background = '#000';
+        toggle.style.color = '#fff';
+        toggle.style.border = '1px solid rgba(255,255,255,0.25)';
+        toggle.style.zIndex = '1000000';
+        toggle.style.boxShadow = '0 10px 24px rgba(0,0,0,0.35)';
+        document.body.appendChild(toggle);
+
+        function open() { wrap.style.display = 'block'; }
+        function close() { wrap.style.display = 'none'; }
+        function clear() { body.textContent = ''; }
+
+        toggle.addEventListener('click', () => {
+            if (wrap.style.display === 'none') open(); else close();
         });
-        const data = await res.json().catch(() => ({}));
+        closeBtn.addEventListener('click', close);
+        clearBtn.addEventListener('click', clear);
+
+        function addLine(level, args) {
+            const ts = new Date().toISOString().slice(11, 19);
+            const line = `[${ts}] ${level}: ` + args.map((a) => {
+                try {
+                    if (typeof a === 'string') return a;
+                    return JSON.stringify(a);
+                } catch (e) {
+                    return String(a);
+                }
+            }).join(' ');
+            body.textContent += line + "\n";
+            body.scrollTop = body.scrollHeight;
+        }
+
+        window.addEventListener('error', (ev) => {
+            addLine('ERROR', [ev.message, (ev.filename || ''), (ev.lineno || ''), (ev.colno || '')]);
+        });
+
+        window.addEventListener('unhandledrejection', (ev) => {
+            addLine('PROMISE', [ev.reason]);
+        });
+
+        return {
+            log: (...args) => addLine('LOG', args),
+            warn: (...args) => addLine('WARN', args),
+            error: (...args) => addLine('ERR', args),
+        };
+    }
+
+    const mconsole = _createMobileConsole();
+    function mlog() { if (mconsole) mconsole.log.apply(null, arguments); }
+    function mwarn() { if (mconsole) mconsole.warn.apply(null, arguments); }
+    function merror() { if (mconsole) mconsole.error.apply(null, arguments); }
+
+    async function postJSON(url, payload) {
+        mlog('POST', url, payload);
+
+        let res;
+        try {
+            res = await fetch(url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken,
+                },
+                body: JSON.stringify(payload),
+            });
+        } catch (e) {
+            merror('FETCH_FAIL', e && e.message ? e.message : e);
+            throw new Error('Network error');
+        }
+
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        let data = {};
+        if (ct.includes('application/json')) {
+            data = await res.json().catch(() => ({}));
+        } else {
+            const txt = await res.text().catch(() => '');
+            data = { _raw: txt };
+        }
+
+        mlog('RESP', res.status, data);
+
         if (!res.ok || (data && data.ok === false)) {
-            const msg = (data && data.error) ? data.error : 'Request failed';
+            const msg = (data && data.error) ? data.error : `HTTP ${res.status}`;
             throw new Error(msg);
         }
+
         return data;
     }
 
@@ -184,21 +348,29 @@
         return staffNameMap[String(id)] || 'Staff';
     }
 
-    
     function ensureDropzone(td) {
         let dz = td.querySelector('.cell-dropzone');
         if (!dz) {
             td.innerHTML = '<div class="cell-dropzone min-h-[72px]"></div>';
             dz = td.querySelector('.cell-dropzone');
         }
+
         if (dz && !dz.__sortableAttached) {
             dz.__sortableAttached = true;
+
+            if (!window.Sortable) {
+                mwarn('SortableJS not loaded (CSP/CDN?). Drag disabled, tap-to-assign still works.');
+                return dz;
+            }
+
             new Sortable(dz, {
                 group: { name: 'staff', pull: false, put: true },
                 sort: false,
                 animation: 150,
                 fallbackOnBody: true,
                 forceFallback: true,
+                filter: '.chip-remove,.pt-time-input,.pt-block-btn',
+                preventOnFilter: false,
                 onAdd: async function (evt) {
                     const staffId = parseInt(evt.item.getAttribute('data-staff-id'), 10);
                     const slotKey = td.getAttribute('data-slot');
@@ -224,7 +396,7 @@
         return dz;
     }
 
-let selectedStaffId = null;
+    let selectedStaffId = null;
     document.querySelectorAll('#staffRoster .roster-chip').forEach((chip) => {
         chip.addEventListener('click', () => {
             const sid = parseInt(chip.getAttribute('data-staff-id'), 10);
@@ -235,9 +407,8 @@ let selectedStaffId = null;
         });
     });
 
-    // Drag roster clones
     const staffRoster = document.getElementById('staffRoster');
-    if (staffRoster) {
+    if (staffRoster && window.Sortable) {
         new Sortable(staffRoster, {
             group: { name: 'staff', pull: 'clone', put: false },
             sort: false,
@@ -245,10 +416,13 @@ let selectedStaffId = null;
             fallbackOnBody: true,
             forceFallback: true,
             ghostClass: 'opacity-70',
+            filter: '.chip-remove',
+            preventOnFilter: false,
         });
+    } else if (staffRoster && !window.Sortable) {
+        mwarn('SortableJS missing: roster drag disabled.');
     }
 
-    // Dropzones
     document.querySelectorAll('td[data-slot][data-day]').forEach((td) => {
         const slotKey = td.getAttribute('data-slot');
         const dayKey = td.getAttribute('data-day');
@@ -258,9 +432,8 @@ let selectedStaffId = null;
             ensureDropzone(td);
         }
 
-        // Tap-to-assign fallback (also allows unblock for PT)
         td.addEventListener('click', async (e) => {
-            if (e.target.closest('.chip-remove') || e.target.closest('.pt-time-input') || e.target.closest('.pt-block-btn')) return;
+            if (_closest(e.target, '.chip-remove') || _closest(e.target, '.pt-time-input') || _closest(e.target, '.pt-block-btn')) return;
 
             const nowBlocked = td.getAttribute('data-blocked') === '1';
             if (slotKey === 'pt' && nowBlocked) {
@@ -331,10 +504,23 @@ let selectedStaffId = null;
         dropzone.innerHTML = html;
     }
 
-    // Remove chips
-    document.addEventListener('click', async function (e) {
-        const btn = e.target.closest('.chip-remove');
+    let __tapGuard = 0;
+    function _guardDoubleTap() {
+        const now = Date.now();
+        if (now - __tapGuard < 450) return true;
+        __tapGuard = now;
+        return false;
+    }
+
+    async function _handleChipRemove(e) {
+        const btn = _closest(e.target, '.chip-remove');
         if (!btn) return;
+
+        if (e.type === 'touchend') {
+            e.preventDefault();
+            if (_guardDoubleTap()) return;
+        }
+
         const chip = btn.closest('.cell-chip');
         const td = btn.closest('td[data-slot][data-day]');
         if (!chip || !td) return;
@@ -356,12 +542,14 @@ let selectedStaffId = null;
         } catch (e2) {
             toast(e2.message);
         }
-    });
+    }
 
-    // PT time edit
+    document.addEventListener('click', _handleChipRemove);
+    document.addEventListener('touchend', _handleChipRemove, { passive: false });
+
     let ptTimer = null;
     document.addEventListener('input', function (e) {
-        const inp = e.target.closest('.pt-time-input');
+        const inp = _closest(e.target, '.pt-time-input');
         if (!inp) return;
         const td = inp.closest('td[data-slot][data-day]');
         if (!td) return;
@@ -387,10 +575,15 @@ let selectedStaffId = null;
         }, 450);
     });
 
-    // PT block toggle
-    document.addEventListener('click', async function (e) {
-        const btn = e.target.closest('.pt-block-btn');
+    async function _handlePtBlock(e) {
+        const btn = _closest(e.target, '.pt-block-btn');
         if (!btn) return;
+
+        if (e.type === 'touchend') {
+            e.preventDefault();
+            if (_guardDoubleTap()) return;
+        }
+
         const td = btn.closest('td[data-slot][data-day]');
         if (!td) return;
 
@@ -407,7 +600,17 @@ let selectedStaffId = null;
         } catch (e2) {
             toast(e2.message);
         }
-    });
+    }
+
+    document.addEventListener('click', _handlePtBlock);
+    document.addEventListener('touchend', _handlePtBlock, { passive: false });
+
+    if (DEBUG) {
+        mlog('DEBUG enabled');
+        mlog('UserAgent:', navigator.userAgent);
+        mlog('Sortable present:', !!window.Sortable);
+    }
 })();
 </script>
+
 {% endblock %}
