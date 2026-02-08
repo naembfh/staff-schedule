@@ -17,10 +17,10 @@
 
             <div class="flex items-center gap-2 flex-wrap">
                 <a href="/schedule/week/{{ week_start }}/pdf/?style=1" class="rounded-lg bg-white text-gray-900 px-3 py-2 text-sm font-semibold">PDF A</a>
-                <a href="/schedule/week/{{ week_start }}/pdf/?style=2" class="rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm">PDF B</a>
+                {% comment %} <a href="/schedule/week/{{ week_start }}/pdf/?style=2" class="rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm">PDF B</a> {% endcomment %}
                 <div class="hidden sm:block w-px bg-white/30 mx-1"></div>
                 <a href="/schedule/week/{{ week_start }}/png/?dpi=450&style=1" class="rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm">Image 450dpi</a>
-                <a href="/schedule/week/{{ week_start }}/png/?dpi=600&style=1" class="rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm">Image 600dpi</a>
+                {% comment %} <a href="/schedule/week/{{ week_start }}/png/?dpi=600&style=1" class="rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm">Image 600dpi</a> {% endcomment %}
             </div>
         </div>
 
