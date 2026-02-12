@@ -455,16 +455,17 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     center_style.alignment = 1
 
     right_style = styles["Normal"].clone("pdf_header_right")
-    right_style.fontName = body_font
+    right_style.fontName = bold_font
     right_style.fontSize = week_font_size
     right_style.leading = week_font_size + 2.2
     right_style.textColor = header_text
     right_style.alignment = 2
 
+
     header_table = Table(
         [[
             Paragraph("", right_style),
-            Paragraph("Sam's Weekly Staff Schedule", center_style),
+            Paragraph("Sam's @ Batai Weekly Staff Schedule", center_style),
             Paragraph(week_title, right_style),
         ]],
         colWidths=[table_width * 0.18, table_width * 0.54, table_width * 0.28],
@@ -491,7 +492,7 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
     th_date_style = styles["Normal"].clone("pdf_th_date")
     th_date_style.fontName = bold_font
     th_date_style.fontSize = header_sub_size
-    th_date_style.leading = header_sub_size + 0.1
+    th_date_style.leading = header_sub_size + 2.2
     th_date_style.textColor = colors.HexColor(table_subtext_hex)
     th_date_style.alignment = 2
     th_date_style.spaceBefore = 0
@@ -776,6 +777,7 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
 
     doc.build(story)
     return buf.getvalue()
+
 
 def build_png(*, schedule, slots, staff_map: dict[int, str], theme, dpi: int = 600, style: int = 1) -> bytes:
     # target DPI (what you want to return)

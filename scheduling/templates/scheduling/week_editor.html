@@ -47,6 +47,10 @@
         </div>
     </div>
 
+    <div class="mt-2 text-xs text-gray-600">
+        Selected: <span id="selectedStaffName" class="font-semibold text-gray-900">None</span>
+    </div>
+
     <div id="staffRoster" class="mt-3 flex flex-wrap gap-2">
         {% for s in staff %}
             <div class="roster-chip select-none cursor-grab active:cursor-grabbing px-3 py-2 rounded-full border bg-gray-50 text-base font-semibold flex items-center gap-2"
@@ -145,6 +149,7 @@
     const weekStart = "{{ week_start }}";
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     const staffNameMap = JSON.parse(document.getElementById('staffNameMapJson').textContent || "{}");
+    const selectedStaffNameEl = document.getElementById('selectedStaffName');
 
     const DEBUG = (new URLSearchParams(location.search).get('debug') === '1') || (localStorage.getItem('sched_debug') === '1');
 
@@ -397,12 +402,22 @@
     }
 
     let selectedStaffId = null;
+
+    if (selectedStaffNameEl) {
+        selectedStaffNameEl.textContent = 'None';
+    }
+
     document.querySelectorAll('#staffRoster .roster-chip').forEach((chip) => {
         chip.addEventListener('click', () => {
             const sid = parseInt(chip.getAttribute('data-staff-id'), 10);
             selectedStaffId = sid;
             document.querySelectorAll('#staffRoster .roster-chip').forEach((c) => c.classList.remove('ring','ring-black'));
             chip.classList.add('ring','ring-black');
+
+            if (selectedStaffNameEl) {
+                selectedStaffNameEl.textContent = getStaffName(sid);
+            }
+
             toast('Selected: ' + getStaffName(sid) + ' → tap a cell');
         });
     });
@@ -461,7 +476,7 @@
                     pt_time: null,
                 });
                 renderCell(td, data.staff_ids || [], data.pt_time || "", data.blocked || false);
-                toast('Added');
+                toast('Added: ' + getStaffName(selectedStaffId));
             } catch (e2) {
                 toast(e2.message);
             }
