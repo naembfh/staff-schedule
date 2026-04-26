@@ -13,6 +13,18 @@ def get_item(d, key):
 
 
 @register.filter
+def get_map_item(d, key):
+    if not isinstance(d, dict):
+        return None
+    if key in d:
+        return d.get(key)
+    skey = str(key)
+    if skey in d:
+        return d.get(skey)
+    return None
+
+
+@register.filter
 def get_dict(d, key):
     if isinstance(d, dict):
         v = d.get(key)

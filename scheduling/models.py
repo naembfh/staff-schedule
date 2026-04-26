@@ -124,6 +124,9 @@ class ScheduleWeek(models.Model):
                 cell.setdefault("blocked", False)
                 if slot.key == "pt":
                     cell.setdefault("pt_time", slot.pt_default_time or "7-11")
+                    cell.setdefault("pt_times", {})
+                    if not isinstance(cell.get("pt_times"), dict):
+                        cell["pt_times"] = {}
 
                 self.cells[slot.key][day_key] = cell
 

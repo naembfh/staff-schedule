@@ -95,27 +95,40 @@
                                 {% with day=cell|get_dict:h.key %}
                                     {% with assigned=day|get_list:"staff" %}
                                         {% with blocked=day|get_bool:"blocked" %}
-                                            <td class="border border-black px-3 py-3 align-top" data-slot="{{ slot.key }}" data-day="{{ h.key }}" data-blocked="{% if slot.allow_block and blocked %}1{% else %}0{% endif %}">
+                                            <td class="border border-black px-3 py-3 align-top" data-slot="{{ slot.key }}" data-day="{{ h.key }}" data-blocked="{% if slot.allow_block and blocked %}1{% else %}0{% endif %}" data-pt-default="{{ slot.pt_default_time|default:'7-11' }}">
                                                 {% if slot.allow_block and blocked %}
                                                     <div class="w-full h-full rounded" style="background: {{ theme.blocked_bg }}; opacity: 0.65; min-height: 72px;"></div>
                                                 {% else %}
                                                     <div class="cell-dropzone min-h-[72px]">
                                                         {% if slot.key == "pt" %}
                                                             <div class="flex items-center gap-2 mb-2">
-                                                                <input class="pt-time-input w-28 rounded border px-2 py-1 text-sm font-semibold"
-                                                                       value="{{ day|get_str:'pt_time' }}"
-                                                                       placeholder="{{ slot.pt_default_time }}">
                                                                 <button type="button" class="pt-block-btn rounded border px-3 py-1 text-sm font-semibold">Block</button>
                                                             </div>
                                                         {% endif %}
 
                                                         <div class="cell-chips flex flex-wrap gap-2">
                                                             {% for staff_id in assigned %}
-                                                                <div class="cell-chip px-3 py-2 rounded-full border bg-white text-base font-semibold flex items-center gap-2"
-                                                                     data-staff-id="{{ staff_id }}">
-                                                                    <span>{{ staff_map|get_item:staff_id }}</span>
-                                                                    <button type="button" class="chip-remove text-sm text-gray-500 hover:text-black" title="Remove">✕</button>
-                                                                </div>
+                                                                {% if slot.key == "pt" %}
+                                                                    {% with pt_times=day|get_dict:"pt_times" %}
+                                                                        {% with this_pt=pt_times|get_map_item:staff_id %}
+                                                                            <div class="cell-chip px-3 py-2 rounded-xl border bg-white text-base font-semibold flex items-center gap-2"
+                                                                                 data-staff-id="{{ staff_id }}">
+                                                                                <span>{{ staff_map|get_item:staff_id }}</span>
+                                                                                <input class="pt-chip-time-input w-24 rounded border px-2 py-1 text-sm font-semibold"
+                                                                                       data-staff-id="{{ staff_id }}"
+                                                                                       value="{% if this_pt %}{{ this_pt }}{% elif day|get_str:'pt_time' %}{{ day|get_str:'pt_time' }}{% else %}{{ slot.pt_default_time }}{% endif %}"
+                                                                                       placeholder="{{ slot.pt_default_time|default:'7-11' }}">
+                                                                                <button type="button" class="chip-remove text-sm text-gray-500 hover:text-black" title="Remove">✕</button>
+                                                                            </div>
+                                                                        {% endwith %}
+                                                                    {% endwith %}
+                                                                {% else %}
+                                                                    <div class="cell-chip px-3 py-2 rounded-full border bg-white text-base font-semibold flex items-center gap-2"
+                                                                         data-staff-id="{{ staff_id }}">
+                                                                        <span>{{ staff_map|get_item:staff_id }}</span>
+                                                                        <button type="button" class="chip-remove text-sm text-gray-500 hover:text-black" title="Remove">✕</button>
+                                                                    </div>
+                                                                {% endif %}
                                                             {% endfor %}
                                                         </div>
                                                     </div>
@@ -374,7 +387,7 @@
                 animation: 150,
                 fallbackOnBody: true,
                 forceFallback: true,
-                filter: '.chip-remove,.pt-time-input,.pt-block-btn',
+                filter: '.chip-remove,.pt-chip-time-input,.pt-block-btn',
                 preventOnFilter: false,
                 onAdd: async function (evt) {
                     const staffId = parseInt(evt.item.getAttribute('data-staff-id'), 10);
@@ -390,7 +403,7 @@
                             staff_id: staffId,
                             pt_time: null,
                         });
-                        renderCell(td, data.staff_ids || [], data.pt_time || "", data.blocked || false);
+                        renderCell(td, data.staff_ids || [], data.pt_time || "", data.pt_times || {}, data.blocked || false);
                         toast('Added');
                     } catch (e) {
                         toast(e.message);
@@ -448,7 +461,7 @@
         }
 
         td.addEventListener('click', async (e) => {
-            if (_closest(e.target, '.chip-remove') || _closest(e.target, '.pt-time-input') || _closest(e.target, '.pt-block-btn')) return;
+            if (_closest(e.target, '.chip-remove') || _closest(e.target, '.pt-chip-time-input') || _closest(e.target, '.pt-block-btn')) return;
 
             const nowBlocked = td.getAttribute('data-blocked') === '1';
             if (slotKey === 'pt' && nowBlocked) {
@@ -457,7 +470,7 @@
                         slot_key: slotKey,
                         day_key: dayKey,
                     });
-                    renderCell(td, data.staff_ids || [], data.pt_time || "", data.blocked || false);
+                    renderCell(td, data.staff_ids || [], data.pt_time || "", data.pt_times || {}, data.blocked || false);
                     toast(data.blocked ? 'Blocked' : 'Unblocked');
                 } catch (e2) {
                     toast(e2.message);
@@ -475,7 +488,7 @@
                     staff_id: selectedStaffId,
                     pt_time: null,
                 });
-                renderCell(td, data.staff_ids || [], data.pt_time || "", data.blocked || false);
+                renderCell(td, data.staff_ids || [], data.pt_time || "", data.pt_times || {}, data.blocked || false);
                 toast('Added: ' + getStaffName(selectedStaffId));
             } catch (e2) {
                 toast(e2.message);
@@ -483,8 +496,10 @@
         });
     });
 
-    function renderCell(td, staffIds, ptTime, blocked) {
+    function renderCell(td, staffIds, ptTime, ptTimes, blocked) {
         const slotKey = td.getAttribute('data-slot');
+        const ptDefault = td.getAttribute('data-pt-default') || '7-11';
+        const ptTimesMap = ptTimes || {};
         td.setAttribute('data-blocked', blocked ? '1' : '0');
 
         if (blocked) {
@@ -496,10 +511,8 @@
 
         let html = '';
         if (slotKey === 'pt') {
-            const safeTime = ptTime ? String(ptTime) : '';
             html += `
                 <div class="flex items-center gap-2 mb-2">
-                    <input class="pt-time-input w-28 rounded border px-2 py-1 text-sm font-semibold" value="${escapeHtml(safeTime)}" placeholder="7-11">
                     <button type="button" class="pt-block-btn rounded border px-3 py-1 text-sm font-semibold">Block</button>
                 </div>
             `;
@@ -508,12 +521,24 @@
         html += '<div class="cell-chips flex flex-wrap gap-2">';
         (staffIds || []).forEach((sid) => {
             const name = getStaffName(sid);
-            html += `
-                <div class="cell-chip px-3 py-2 rounded-full border bg-white text-base font-semibold flex items-center gap-2" data-staff-id="${sid}">
-                    <span>${escapeHtml(name)}</span>
-                    <button type="button" class="chip-remove text-sm text-gray-500 hover:text-black" title="Remove">✕</button>
-                </div>
-            `;
+            if (slotKey === 'pt') {
+                const sidKey = String(sid);
+                const timeVal = String(ptTimesMap[sidKey] || ptTime || ptDefault || '').trim();
+                html += `
+                    <div class="cell-chip px-3 py-2 rounded-xl border bg-white text-base font-semibold flex items-center gap-2" data-staff-id="${sid}">
+                        <span>${escapeHtml(name)}</span>
+                        <input class="pt-chip-time-input w-24 rounded border px-2 py-1 text-sm font-semibold" data-staff-id="${sid}" value="${escapeHtml(timeVal)}" placeholder="${escapeHtml(ptDefault)}">
+                        <button type="button" class="chip-remove text-sm text-gray-500 hover:text-black" title="Remove">✕</button>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="cell-chip px-3 py-2 rounded-full border bg-white text-base font-semibold flex items-center gap-2" data-staff-id="${sid}">
+                        <span>${escapeHtml(name)}</span>
+                        <button type="button" class="chip-remove text-sm text-gray-500 hover:text-black" title="Remove">✕</button>
+                    </div>
+                `;
+            }
         });
         html += '</div>';
         dropzone.innerHTML = html;
@@ -552,7 +577,7 @@
                 staff_id: staffId,
                 pt_time: null,
             });
-            renderCell(td, data.staff_ids || [], data.pt_time || "", data.blocked || false);
+            renderCell(td, data.staff_ids || [], data.pt_time || "", data.pt_times || {}, data.blocked || false);
             toast('Removed');
         } catch (e2) {
             toast(e2.message);
@@ -562,15 +587,22 @@
     document.addEventListener('click', _handleChipRemove);
     document.addEventListener('touchend', _handleChipRemove, { passive: false });
 
-    let ptTimer = null;
+    const ptTimers = new Map();
     document.addEventListener('input', function (e) {
-        const inp = _closest(e.target, '.pt-time-input');
+        const inp = _closest(e.target, '.pt-chip-time-input');
         if (!inp) return;
         const td = inp.closest('td[data-slot][data-day]');
         if (!td) return;
 
-        clearTimeout(ptTimer);
-        ptTimer = setTimeout(async () => {
+        const staffId = parseInt(inp.getAttribute('data-staff-id') || '0', 10);
+        if (!staffId) return;
+
+        const slotKey = td.getAttribute('data-slot');
+        const dayKey = td.getAttribute('data-day');
+        const timerKey = `${slotKey}:${dayKey}:${staffId}`;
+
+        clearTimeout(ptTimers.get(timerKey));
+        const t = setTimeout(async () => {
             const slotKey = td.getAttribute('data-slot');
             const dayKey = td.getAttribute('data-day');
             const ptTime = inp.value.trim();
@@ -580,7 +612,7 @@
                     slot_key: slotKey,
                     day_key: dayKey,
                     action: 'set_pt_time',
-                    staff_id: null,
+                    staff_id: staffId,
                     pt_time: ptTime,
                 });
                 toast('Saved');
@@ -588,6 +620,7 @@
                 toast(e2.message);
             }
         }, 450);
+        ptTimers.set(timerKey, t);
     });
 
     async function _handlePtBlock(e) {
@@ -610,7 +643,7 @@
                 slot_key: slotKey,
                 day_key: dayKey,
             });
-            renderCell(td, data.staff_ids || [], data.pt_time || "", data.blocked || false);
+            renderCell(td, data.staff_ids || [], data.pt_time || "", data.pt_times || {}, data.blocked || false);
             toast(data.blocked ? 'Blocked' : 'Unblocked');
         } catch (e2) {
             toast(e2.message);

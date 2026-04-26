@@ -356,13 +356,22 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
             return ""
         return "<br/>".join([n for n in names if (n or "").strip()])
 
-    def _format_pt_names(names: list[str], pt_time: str) -> str:
+    def _format_pt_names(names: list[str], pt_times: list[str], fallback_pt_time: str) -> str:
         if not names:
             return ""
-        if not pt_time:
-            return _format_names(names)
-
-        tagged = [f"{n} ({pt_time})" for n in names if (n or "").strip()]
+        tagged = []
+        for idx, n in enumerate(names):
+            if not (n or "").strip():
+                continue
+            this_time = ""
+            if idx < len(pt_times):
+                this_time = (pt_times[idx] or "").strip()
+            if not this_time:
+                this_time = (fallback_pt_time or "").strip()
+            if this_time:
+                tagged.append(f"{n} ({this_time})")
+            else:
+                tagged.append(n)
         return "<br/>".join(tagged)
 
     # ===== Dynamic column widths (snug but stable) =====
@@ -412,8 +421,10 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
             kind = _slot_kind(slot)
 
             if kind == "pt":
-                pt_time = (cell.get("pt_time") or "").strip()
-                preview = _format_pt_names([str(n) for n in names], pt_time) if names else ""
+                fallback_pt_time = (cell.get("pt_time") or "").strip()
+                pt_times_map = cell.get("pt_times") if isinstance(cell.get("pt_times"), dict) else {}
+                pt_times_ordered = [str(pt_times_map.get(str(i), pt_times_map.get(i, "")) or "").strip() for i in staff_ids]
+                preview = _format_pt_names([str(n) for n in names], pt_times_ordered, fallback_pt_time) if names else ""
             else:
                 preview = _format_names([str(n) for n in names]) if names else ""
 
@@ -613,7 +624,9 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
             names_list = [str(n) for n in names]
 
             if kind == "pt":
-                pt_time = (cell.get("pt_time") or "").strip()
+                fallback_pt_time = (cell.get("pt_time") or "").strip()
+                pt_times_map = cell.get("pt_times") if isinstance(cell.get("pt_times"), dict) else {}
+                pt_times_ordered = [str(pt_times_map.get(str(i), pt_times_map.get(i, "")) or "").strip() for i in staff_ids]
 
                 # Empty -> use same empty cell color
                 if not names_list:
@@ -621,7 +634,7 @@ def build_pdf(*, schedule, slots, staff_map: dict[int, str], theme, style: int =
                     row.append("")
                     continue
 
-                row.append(Paragraph(_indent_each_line(_format_pt_names(names_list, pt_time)), td_pt_style))
+                row.append(Paragraph(_indent_each_line(_format_pt_names(names_list, pt_times_ordered, fallback_pt_time)), td_pt_style))
                 continue
 
             if not names_list:

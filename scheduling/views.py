@@ -34,6 +34,28 @@ def _unique_keep_order(items):
     return out
 
 
+def _normalize_pt_times(cell: dict) -> dict[str, str]:
+    pt_times_raw = cell.get("pt_times")
+    if not isinstance(pt_times_raw, dict):
+        return {}
+
+    out: dict[str, str] = {}
+    for k, v in pt_times_raw.items():
+        if not str(k).isdigit():
+            continue
+        out[str(int(k))] = str(v or "").strip()
+    return out
+
+
+def _cell_payload(cell: dict) -> dict:
+    return {
+        "staff_ids": cell.get("staff") or [],
+        "pt_time": cell.get("pt_time") or "",
+        "pt_times": _normalize_pt_times(cell),
+        "blocked": bool(cell.get("blocked")),
+    }
+
+
 def _get_theme():
     theme = ScheduleTheme.objects.order_by("id").first()
     if not theme:
@@ -98,10 +120,19 @@ def staff_delete(request, staff_id: int):
                     continue
                 ids = [int(x) for x in (cell.get("staff") or []) if str(x).isdigit()]
                 new_ids = [x for x in ids if x != staff.id]
+                should_track_pt = slot_key == PT_SLOT_KEY or "pt_times" in cell
+                old_pt_times = _normalize_pt_times(cell) if should_track_pt else {}
+                pt_times = dict(old_pt_times)
+                if should_track_pt:
+                    pt_times.pop(str(staff.id), None)
                 if new_ids != ids:
                     cell["staff"] = new_ids
-                    sched.cells[slot_key][day_key] = cell
                     changed = True
+                if should_track_pt and pt_times != old_pt_times:
+                    changed = True
+                if should_track_pt:
+                    cell["pt_times"] = pt_times
+                sched.cells[slot_key][day_key] = cell
         if changed:
             sched.save()
 
@@ -290,10 +321,28 @@ def api_cell_update(request, week_start: str):
     if action == "set_pt_time":
         if slot_key != PT_SLOT_KEY:
             return JsonResponse({"ok": False, "error": "PT time only applies to PT row."}, status=400)
-        cell["pt_time"] = (pt_time or "").strip()
+
+        pt_time_value = (pt_time or "").strip()
+        if staff_id is None:
+            # Backward-compatible fallback: updates default PT time for this cell.
+            cell["pt_time"] = pt_time_value
+        else:
+            try:
+                staff_id = int(staff_id)
+            except Exception:
+                return JsonResponse({"ok": False, "error": "Invalid staff_id."}, status=400)
+
+            ids = [int(x) for x in (cell.get("staff") or []) if str(x).isdigit()]
+            if staff_id not in ids:
+                return JsonResponse({"ok": False, "error": "Staff is not assigned in this PT cell."}, status=409)
+
+            pt_times = _normalize_pt_times(cell)
+            pt_times[str(staff_id)] = pt_time_value
+            cell["pt_times"] = pt_times
+
         schedule.cells[slot_key][day_key] = cell
         schedule.save()
-        return JsonResponse({"ok": True, "staff_ids": cell.get("staff") or [], "pt_time": cell.get("pt_time") or "", "blocked": bool(cell.get("blocked"))})
+        return JsonResponse({"ok": True, **_cell_payload(cell)})
 
     if staff_id is None:
         return JsonResponse({"ok": False, "error": "Missing staff_id."}, status=400)
@@ -322,6 +371,11 @@ def api_cell_update(request, week_start: str):
         if staff_id not in ids:
             ids.append(staff_id)
         cell["staff"] = ids
+        if slot_key == PT_SLOT_KEY:
+            pt_times = _normalize_pt_times(cell)
+            default_time = (cell.get("pt_time") or slot.pt_default_time or "7-11").strip()
+            pt_times.setdefault(str(staff_id), default_time)
+            cell["pt_times"] = pt_times
         schedule.cells[slot_key][day_key] = cell
 
         # If adding to exclusive row, remove from all other rows that day
@@ -334,17 +388,25 @@ def api_cell_update(request, week_start: str):
                 new_other = [x for x in other_ids if x != staff_id]
                 if new_other != other_ids:
                     other_cell["staff"] = new_other
+                    if other_slot_key == PT_SLOT_KEY or "pt_times" in other_cell:
+                        other_pt_times = _normalize_pt_times(other_cell)
+                        other_pt_times.pop(str(staff_id), None)
+                        other_cell["pt_times"] = other_pt_times
                     schedule.cells[other_slot_key][day_key] = other_cell
 
         schedule.save()
-        return JsonResponse({"ok": True, "staff_ids": cell.get("staff") or [], "pt_time": cell.get("pt_time") or "", "blocked": bool(cell.get("blocked"))})
+        return JsonResponse({"ok": True, **_cell_payload(cell)})
 
     if action == "remove":
         new_ids = [x for x in ids if x != staff_id]
         cell["staff"] = new_ids
+        if slot_key == PT_SLOT_KEY or "pt_times" in cell:
+            pt_times = _normalize_pt_times(cell)
+            pt_times.pop(str(staff_id), None)
+            cell["pt_times"] = pt_times
         schedule.cells[slot_key][day_key] = cell
         schedule.save()
-        return JsonResponse({"ok": True, "staff_ids": cell.get("staff") or [], "pt_time": cell.get("pt_time") or "", "blocked": bool(cell.get("blocked"))})
+        return JsonResponse({"ok": True, **_cell_payload(cell)})
 
     return JsonResponse({"ok": False, "error": "Invalid action."}, status=400)
 
@@ -369,10 +431,11 @@ def api_cell_block(request, week_start: str):
     cell["blocked"] = blocked
     if blocked:
         cell["staff"] = []
+        cell["pt_times"] = {}
     schedule.cells[slot_key][day_key] = cell
     schedule.save()
 
-    return JsonResponse({"ok": True, "staff_ids": cell.get("staff") or [], "pt_time": cell.get("pt_time") or "", "blocked": bool(cell.get("blocked"))})
+    return JsonResponse({"ok": True, **_cell_payload(cell)})
 
 
 def week_pdf(request, week_start: str):
